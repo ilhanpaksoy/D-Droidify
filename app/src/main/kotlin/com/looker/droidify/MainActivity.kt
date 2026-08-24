@@ -14,12 +14,13 @@ import androidx.core.view.WindowCompat
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.commit
 import androidx.lifecycle.lifecycleScope
+import com.looker.droidify.data.model.toPackageName
 import com.looker.droidify.database.CursorOwner
 import com.looker.droidify.datastore.SettingsRepository
 import com.looker.droidify.datastore.extension.getThemeRes
 import com.looker.droidify.datastore.get
 import com.looker.droidify.installer.InstallManager
-import com.looker.droidify.installer.model.installFrom
+import com.looker.droidify.installer.model.InstallItem
 import com.looker.droidify.ui.appDetail.AppDetailFragment
 import com.looker.droidify.ui.favourites.FavouritesFragment
 import com.looker.droidify.ui.repository.EditRepositoryFragment
@@ -28,23 +29,23 @@ import com.looker.droidify.ui.repository.RepositoryFragment
 import com.looker.droidify.ui.settings.SettingsFragment
 import com.looker.droidify.ui.tabsFragment.TabsFragment
 import com.looker.droidify.utility.common.DeeplinkType
-import com.looker.droidify.utility.common.SdkCheck
 import com.looker.droidify.utility.common.deeplinkType
 import com.looker.droidify.utility.common.extension.homeAsUp
 import com.looker.droidify.utility.common.extension.inputManager
 import com.looker.droidify.utility.common.getInstallPackageName
 import com.looker.droidify.utility.common.requestNotificationPermission
+import com.looker.droidify.utility.getParcelableArrayListCompat
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
+import javax.inject.Inject
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.parcelize.Parcelize
-import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : AppCompatActivity() {
@@ -142,7 +143,7 @@ class MainActivity : AppCompatActivity() {
                 supportFragmentManager.findFragmentByTag(CursorOwner::class.java.name) as CursorOwner
         }
 
-        savedInstanceState?.getParcelableArrayList<FragmentStackItem>(STATE_FRAGMENT_STACK)
+        savedInstanceState?.getParcelableArrayListCompat<FragmentStackItem>(STATE_FRAGMENT_STACK)
             ?.let { fragmentStack += it }
         if (savedInstanceState == null) {
             replaceFragment(TabsFragment(), null)
@@ -150,11 +151,17 @@ class MainActivity : AppCompatActivity() {
                 handleIntent(intent)
             }
         }
-        if (SdkCheck.isR) {
+
+        @Suppress("DEPRECATION")
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+            && Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM
+        ) {
             window.statusBarColor = resources.getColor(android.R.color.transparent, theme)
             window.navigationBarColor = resources.getColor(android.R.color.transparent, theme)
             WindowCompat.setDecorFitsSystemWindows(window, false)
         }
+
         backHandler()
     }
 
@@ -257,7 +264,10 @@ class MainActivity : AppCompatActivity() {
                 if (!packageName.isNullOrEmpty()) {
                     navigateProduct(packageName)
                     val cacheFile = intent.getStringExtra(EXTRA_CACHE_FILE_NAME) ?: return
-                    val installItem = packageName installFrom cacheFile
+                    val installItem = InstallItem(
+                        packageName = packageName.toPackageName(),
+                        installFileName = cacheFile,
+                    )
                     lifecycleScope.launch { installer install installItem }
                 }
             }
