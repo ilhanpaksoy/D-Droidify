@@ -23,36 +23,137 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: gradle/actions/setup-gradle@v4
 
+      - name: Decode keystore
+        run: printf '%s' "${{ secrets.KEY_BASE64 }}" | base64 --decode > ${{ github.workspace }}/d-droidify.jks
+
+      - name: Create keystore.properties
+        run: |
+          cat > ${{ github.workspace }}/keystore.properties <<EOF
+          storeFile=${{ github.workspace }}/d-droidify.jks
+          storePassword=${{ secrets.KEYSTORE_PASS }}
+          keyAlias=${{ secrets.KEY_ALIAS }}
+          keyPassword=${{ secrets.KEYSTORE_PASS }}
+          EOF
+          echo "keystore.properties created (secrets masked)"
+          ls -lh ${{ github.workspace }}/d-droidify.jks ${{ github.workspace }}/keystore.properties
+
       - name: Build Release APK
+        env:
+          GITHUB_REF_NAME: ${{ github.event.inputs.tag || github.ref_name }}
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: ./gradlew assembleRelease
 
-      - uses: r0adkll/sign-android-release@v1
-        name: Signing APK
-        id: sign_app
-        with:
-          releaseDirectory: app/build/outputs/apk/release
-          signingKeyBase64: ${{ secrets.KEY_BASE64 }}
-          alias: ${{ secrets.KEY_ALIAS }}
-          keyStorePassword: ${{ secrets.KEYSTORE_PASS }}
-          keyPassword: ${{ secrets.KEYSTORE_PASS }}
+      - name: Verify APK version matches tag
         env:
-          BUILD_TOOLS_VERSION: "36.0.0"
+          EXPECTED_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -e
+          APK="app/build/outputs/apk/release/app-release.apk"
+          ls -lh "$APK"
+          echo "ANDROID_HOME=${ANDROID_HOME:-unset} ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-unset}"
+          ls -d ${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools/* 2>&1 | head -n 20 || true
+          # Robust aapt/aapt2 discovery (runner has SDK but not in PATH)
+          find_aapt() {
+            # try PATH first
+            if command -v aapt2 >/dev/null 2>&1; then echo "$(command -v aapt2)"; return 0; fi
+            if command -v aapt >/dev/null 2>&1; then echo "$(command -v aapt)"; return 0; fi
+            # try SDK locations
+            for base in "${ANDROID_HOME:-}" "${ANDROID_SDK_ROOT:-}" "/usr/local/lib/android/sdk" "/opt/android/sdk" "$HOME/Android/Sdk"; do
+              [ -n "$base" ] || continue
+              [ -d "$base/build-tools" ] || continue
+              # prefer latest build-tools version (sort -V)
+              latest=$(ls -d "$base/build-tools"/* 2>/dev/null | sort -V | tail -1)
+              if [ -x "$latest/aapt2" ]; then echo "$latest/aapt2"; return 0; fi
+              if [ -x "$latest/aapt" ]; then echo "$latest/aapt"; return 0; fi
+              cand=$(find "$base/build-tools" -name "aapt2" -type f 2>/dev/null | head -1)
+              if [ -n "$cand" ]; then echo "$cand"; return 0; fi
+              cand=$(find "$base/build-tools" -name "aapt" -type f 2>/dev/null | head -1)
+              if [ -n "$cand" ]; then echo "$cand"; return 0; fi
+            done
+            return 1
+          }
+          AAPT_BIN=$(find_aapt || true)
+          echo "AAPT_BIN=$AAPT_BIN"
+          if [ -z "$AAPT_BIN" ]; then
+            echo "aapt not found, installing via apt..."
+            sudo apt-get update -qq && sudo apt-get install -y aapt 2>&1 | tail -n 20 || true
+            AAPT_BIN=$(command -v aapt || command -v aapt2 || true)
+            echo "after install AAPT_BIN=$AAPT_BIN"
+          fi
+          BADGING=""
+          if [ -n "$AAPT_BIN" ]; then
+            BADGING=$("$AAPT_BIN" dump badging "$APK" 2>&1 | head -n 20 || true)
+          fi
+          # fallback try generic names if still empty
+          if [ -z "$BADGING" ] && command -v aapt2 >/dev/null 2>&1; then
+            BADGING=$(aapt2 dump badging "$APK" 2>&1 | head -n 20 || true)
+          fi
+          if [ -z "$BADGING" ] && command -v aapt >/dev/null 2>&1; then
+            BADGING=$(aapt dump badging "$APK" 2>&1 | head -n 20 || true)
+          fi
+          echo "$BADGING"
+          if [ -z "$BADGING" ]; then
+            echo "::error::Failed to get APK badging (aapt not found or failed). Try alternative: unzip -p?"
+            # last resort: try apkanalyzer if available
+            if command -v apkanalyzer >/dev/null 2>&1; then
+              apkanalyzer manifest version-code "$APK" 2>&1 | head || true
+              apkanalyzer manifest version-name "$APK" 2>&1 | head || true
+            fi
+            exit 1
+          fi
+          # Extract versionName/versionCode
+          VN=$(echo "$BADGING" | grep -o "versionName='[^']*'" | head -1 | cut -d"'" -f2)
+          VC=$(echo "$BADGING" | grep -o "versionCode='[^']*'" | head -1 | cut -d"'" -f2)
+          echo "APK versionName=$VN versionCode=$VC expectedTag=$EXPECTED_TAG"
+          EXPECTED_VN=$(echo "$EXPECTED_TAG" | sed 's/^v//')
+          # versionCode check: semver-based major*10000+minor*100+patch*10+suffix (suffix<10)
+          EXP_VC=$(python3 - "$EXPECTED_VN" <<'PY'
+          import sys
+          raw=sys.argv[1]
+          stripped=raw.lstrip("v").strip()
+          dash=stripped.rfind("-")
+          if dash!=-1 and stripped[dash+1:].isdigit():
+              base=stripped[:dash]; suffix=int(stripped[dash+1:])
+          else:
+              base=stripped; suffix=0
+          suffix=min(max(suffix,0),9)
+          parts=base.split(".")
+          major=int(parts[0]) if len(parts)>0 and parts[0].isdigit() else 0
+          minor=int(parts[1]) if len(parts)>1 and parts[1].isdigit() else 0
+          patch=int(parts[2]) if len(parts)>2 and parts[2].isdigit() else 0
+          code=major*10000+minor*100+patch*10+suffix
+          print(code)
+          PY
+          )
+          echo "expected versionName=$EXPECTED_VN expected versionCode=$EXP_VC"
+          if [ "$VN" != "$EXPECTED_VN" ]; then
+            echo "::error::versionName mismatch: got $VN expected $EXPECTED_VN"
+            exit 1
+          fi
+          if [ "$VC" != "$EXP_VC" ]; then
+            echo "::error::versionCode mismatch: got $VC expected $EXP_VC"
+            exit 1
+          fi
+          echo "APK version verified OK"
 
       - uses: actions/upload-artifact@v4
         with:
           name: release
-          path: ${{steps.sign_app.outputs.signedReleaseFile}}
+          path: app/build/outputs/apk/release/app-release.apk
 
       - uses: softprops/action-gh-release@v2
         name: Create Release
         id: publish_release
         with:
+          token: ${{ secrets.RELEASE_PAT }}
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           name: Release ${{ github.event.inputs.tag || github.ref_name }}
-          files: ${{steps.sign_app.outputs.signedReleaseFile}}
+          files: app/build/outputs/apk/release/app-release.apk
           generate_release_notes: true
           make_latest: true
           prerelease: false
-          draft: true
+          draft: false

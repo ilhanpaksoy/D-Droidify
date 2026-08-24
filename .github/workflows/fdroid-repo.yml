@@ -1,0 +1,546 @@
+name: Deploy F-Droid Repo (Pages)
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Optional: single tag (e.g. v0.7.6-1). Empty = last 5 releases (optimize). Release event = all releases.'
+        required: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages-fdroid"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup Java (for apksigner / fdroid)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install fdroidserver + deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install fdroidserver androguard pillow
+          fdroid --version
+          if ! command -v aapt >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y aapt apksigner 2>&1 | tail -n 20 || true
+          fi
+          aapt version 2>&1 | head -n 5 || true
+          apksigner --version 2>&1 | head -n 5 || true
+
+      - name: Decode repo keystore
+        run: |
+          printf '%s' "${{ secrets.REPO_KEYSTORE_BASE64 }}" | base64 --decode > ${{ github.workspace }}/fdroid-repo.jks
+          ls -lh ${{ github.workspace }}/fdroid-repo.jks
+          keytool -list -v -keystore ${{ github.workspace }}/fdroid-repo.jks -storepass "${{ secrets.REPO_KEYSTORE_PASS }}" 2>&1 | head -n 20
+
+      - name: Prepare fdroid config
+        run: |
+          mkdir -p fdroid/repo fdroid/archive
+          cp "${{ github.workspace }}/app/src/main/ic_launcher-playstore.png" fdroid/icon.png
+          cp "${{ github.workspace }}/app/src/main/ic_launcher-playstore.png" fdroid/archive-icon.png
+          mkdir -p fdroid/repo/icons fdroid/archive/icons
+          cp fdroid/icon.png fdroid/repo/icons/icon.png
+          cp fdroid/archive-icon.png fdroid/archive/icons/archive-icon.png
+          cp fdroid/icon.png fdroid/archive/icons/icon.png
+          ls -lh fdroid/*.png fdroid/repo/icons/* fdroid/archive/icons/* 2>&1 | head -n 20 || true
+          cat > fdroid/config.yml <<EOF
+          repo_url: https://ilhanpaksoy.github.io/client/fdroid/repo
+          repo_name: D-Droidify
+          repo_description: D-Droidify self-update repository
+          archive_older: 3
+          keystore: /tmp/fdroid-repo.jks
+          keystorepass: __REPO_PASS__
+          keypass: __REPO_PASS__
+          repo_keyalias: repo
+          repo_icon: icon.png
+          archive_icon: archive-icon.png
+          EOF
+          python3 <<'PY'
+          import pathlib, os
+          p = pathlib.Path("fdroid/config.yml")
+          t = p.read_text().replace("__REPO_PASS__", os.environ["REPO_PASS"])
+          p.write_text(t)
+          print(p.read_text().replace(os.environ["REPO_PASS"], "***"))
+          PY
+          cp ${{ github.workspace }}/fdroid-repo.jks /tmp/fdroid-repo.jks
+          chmod 600 /tmp/fdroid-repo.jks fdroid/config.yml
+          ls -lh fdroid/*.png
+        env:
+          REPO_PASS: ${{ secrets.REPO_KEYSTORE_PASS }}
+
+      - name: Fetch APKs from GitHub Releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          mkdir -p fdroid/repo
+          rm -rf /tmp/apks && mkdir -p /tmp/apks
+
+          # Helper: retry gh download (handles race where release published but asset not yet available)
+          gh_download_with_retry() {
+            tag="$1"
+            tries=0
+            max=3
+            while [ $tries -lt $max ]; do
+              tries=$((tries+1))
+              echo "Downloading $tag (attempt $tries/$max)..."
+              if gh release download "$tag" --dir /tmp/apks --pattern "*.apk" --clobber 2>&1 | tail -n 20; then
+                if ls /tmp/apks/*.apk >/dev/null 2>&1; then
+                  return 0
+                fi
+                echo "No APK found for $tag after download, retrying..."
+              fi
+              if [ $tries -lt $max ]; then sleep $((tries*5)); fi
+            done
+            echo "::warning::Failed to download APK for $tag after $max attempts"
+            return 1
+          }
+
+          INPUT_TAG="${{ github.event.inputs.tag || '' }}"
+          EVENT_NAME="${{ github.event_name }}"
+          if [ -n "$INPUT_TAG" ]; then
+            echo "Mode: single tag $INPUT_TAG (manual)"
+            gh_download_with_retry "$INPUT_TAG" || true
+            for f in /tmp/apks/*.apk; do [ -e "$f" ] || continue; mv "$f" "fdroid/repo/app-${INPUT_TAG}.apk"; done
+          elif [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "Mode: workflow_dispatch empty -> last 5 releases (optimize)"
+            TAGS=$(gh release list --limit 5 --json tagName,isDraft --jq '.[] | select(.isDraft==false) | .tagName')
+            echo "Tags (last 5): $TAGS"
+            for tag in $TAGS; do
+              rm -rf /tmp/apks/* 2>/dev/null || true
+              gh_download_with_retry "$tag" || true
+              for f in /tmp/apks/*.apk; do [ -e "$f" ] || continue; mv "$f" "fdroid/repo/app-${tag}.apk"; echo "moved -> app-${tag}.apk"; done
+            done
+          else
+            echo "Mode: release event -> all releases (all history, archive_older=3)"
+            TAGS=$(gh release list --limit 100 --json tagName,isDraft --jq '.[] | select(.isDraft==false) | .tagName')
+            echo "Tags: $TAGS"
+            for tag in $TAGS; do
+              rm -rf /tmp/apks/* 2>/dev/null || true
+              gh_download_with_retry "$tag" || true
+              for f in /tmp/apks/*.apk; do [ -e "$f" ] || continue; mv "$f" "fdroid/repo/app-${tag}.apk"; echo "moved -> app-${tag}.apk"; done
+            done
+          fi
+          if [ -z "$(ls -A fdroid/repo/*.apk 2>/dev/null)" ]; then
+            FALLBACK="${{ github.event.release.tag_name }}"
+            if [ -n "$FALLBACK" ]; then
+              echo "Fallback: $FALLBACK"
+              gh_download_with_retry "$FALLBACK" || true
+              for f in /tmp/apks/*.apk; do [ -e "$f" ] || continue; mv "$f" "fdroid/repo/app-${FALLBACK}.apk"; done
+            fi
+          fi
+          echo "APK count: $(ls -1 fdroid/repo/*.apk 2>/dev/null | wc -l)"
+          ls -lh fdroid/repo/*.apk
+          echo "=== validate APK versionCodes unique & match tag ==="
+          python3 <<'PY'
+          import re, subprocess, pathlib, sys
+          apk_dir = pathlib.Path("fdroid/repo")
+          seen = {}
+          dup = False
+          for apk in sorted(apk_dir.glob("*.apk")):
+              # 1. try aapt
+              vc = vn = None
+              try:
+                  out = subprocess.check_output(["aapt", "dump", "badging", str(apk)], text=True, stderr=subprocess.STDOUT)
+                  m = re.search(r"versionCode='(\d+)'", out)
+                  n = re.search(r"versionName='([^']+)'", out)
+                  if m: vc = m.group(1)
+                  if n: vn = n.group(1)
+              except Exception as e:
+                  print(f"aapt failed for {apk.name}: {e}")
+              # 2. fallback parse tag from filename app-vX.Y.Z-N.apk -> semver
+              def semver_code(tag_str):
+                  s=tag_str.lstrip("v")
+                  dash=s.rfind("-")
+                  if dash!=-1 and s[dash+1:].isdigit():
+                      base=s[:dash]; suf=int(s[dash+1:])
+                  else:
+                      base=s; suf=0
+                  suf=min(max(suf,0),9)
+                  parts=base.split(".")
+                  try: maj=int(parts[0]) if len(parts)>0 and parts[0].isdigit() else 0
+                  except: maj=0
+                  try: mi=int(parts[1]) if len(parts)>1 and parts[1].isdigit() else 0
+                  except: mi=0
+                  try: pa=int(parts[2]) if len(parts)>2 and parts[2].isdigit() else 0
+                  except: pa=0
+                  return str(maj*10000+mi*100+pa*10+suf)
+              tag_match = re.search(r"v?(\d+\.\d+\.\d+(?:-\d+)?)", apk.name)
+              expected_vn = tag_match.group(1) if tag_match else None
+              expected_vc = semver_code(expected_vn) if expected_vn else None
+              print(f"{apk.name}: vn={vn} vc={vc} expected vn={expected_vn} vc={expected_vc}")
+              if vn and expected_vn and vn != expected_vn:
+                  print(f"::warning:: {apk.name} versionName {vn} != expected {expected_vn} (tag mismatch)")
+              if vc:
+                  if vc in seen:
+                      print(f"::error:: duplicate versionCode {vc} for {apk.name} and {seen[vc]}")
+                      dup = True
+                  else:
+                      seen[vc]=apk.name
+          if dup:
+              print("::error:: duplicate versionCode detected — bump versionCode in app/build.gradle.kts (765+). F-Droid requires unique monotone versionCode.")
+              sys.exit(1)
+          print(f"validated {len(seen)} unique versionCodes: {seen}")
+          PY
+
+      - name: Run fdroid update
+        working-directory: fdroid
+        env:
+          REPO_KEYSTORE_PASS: ${{ secrets.REPO_KEYSTORE_PASS }}
+        run: |
+          set -e
+          fdroid update --create-metadata --verbose
+          echo "=== fdroid update done ==="
+          ls -lh repo/ | head -n 30
+          ls -lh repo/icons*/* 2>&1 | head -n 30 || echo "no app icons yet"
+
+      - name: Validate fdroid index (unique versionCode)
+        working-directory: fdroid
+        run: |
+          set -e
+          python3 <<'PY'
+          import json, pathlib, sys, collections
+          p = pathlib.Path("repo/index-v2.json")
+          if not p.exists():
+              print("index-v2.json missing, skip validation")
+              sys.exit(0)
+          data = json.loads(open(p, encoding="utf-8").read())
+          pkgs = data.get("packages", {}).get("io.github.ilhan.droidify", {}).get("versions", {})
+          vcs = []
+          for hv, v in pkgs.items():
+              vc = v.get("manifest", {}).get("versionCode")
+              vn = v.get("manifest", {}).get("versionName")
+              f = v.get("file", {}).get("name")
+              print(f"{f}: versionName={vn} versionCode={vc} hash={hv[:8]}")
+              vcs.append(vc)
+          cnt = collections.Counter(vcs)
+          dups = [k for k,v in cnt.items() if v>1]
+          if dups:
+              print(f"::error:: duplicate versionCode(s) in index-v2.json: {dups} -> {cnt}")
+              print("This usually means app/build.gradle.kts versionCode wasn't bumped for new tag. Fix by checking semver formula (major*10000+minor*100+patch*10+suffix).")
+              sys.exit(1)
+          print(f"index validation OK: {len(vcs)} versions, codes {sorted(vcs)}")
+          # also check monotonic: warn if max VC seems low (e.g., < 765 for 0.7.6-5 era)
+          if vcs and max(vcs) < 761:
+              print(f"::warning:: max versionCode {max(vcs)} seems low (<761 for 0.7.6-1). Check if new APK was fetched.")
+          PY
+
+      - name: Fix icons and re-sign
+        working-directory: fdroid
+        run: |
+          set -e
+          echo "=== ensure repo icons ==="
+          if [ ! -f repo/icons/icon.png ] || [ "$(stat -c%s repo/icons/icon.png 2>/dev/null || stat -f%z repo/icons/icon.png)" -lt 5000 ]; then
+            mkdir -p repo/icons
+            cp "${{ github.workspace }}/app/src/main/ic_launcher-playstore.png" repo/icons/icon.png
+          fi
+          if [ -d archive ] && { [ ! -f archive/icons/icon.png ] || [ "$(stat -c%s archive/icons/icon.png 2>/dev/null || stat -f%z archive/icons/icon.png)" -lt 5000 ]; }; then
+            mkdir -p archive/icons
+            cp repo/icons/icon.png archive/icons/icon.png || cp "${{ github.workspace }}/app/src/main/ic_launcher-playstore.png" archive/icons/icon.png
+            mkdir -p archive/icons && cp repo/icons/icon.png archive/icons/archive-icon.png 2>/dev/null || true
+          fi
+          echo "=== ensure app icons (baseline icons/ + icons-\$dpi for repo & archive) ==="
+          PLAYSTORE="${{ github.workspace }}/app/src/main/ic_launcher-playstore.png"
+          for repodir in repo archive; do
+            [ -d "$repodir" ] || continue
+            VCs=$(python3 <<PY 2>/dev/null
+          import json, pathlib, re, subprocess
+          repodir="$repodir"
+          p=pathlib.Path(repodir)/"index-v2.json"
+          vcs=[]
+          try:
+              if p.exists():
+                  d=json.load(open(p,encoding="utf-8"))
+                  pkgs=d.get("packages",{}).get("io.github.ilhan.droidify",{}).get("versions",{})
+                  vcs=[str(v.get("manifest",{}).get("versionCode","")) for v in pkgs.values() if v.get("manifest",{}).get("versionCode")]
+              if not vcs:
+                  p1=pathlib.Path(repodir)/"index-v1.json"
+                  if p1.exists():
+                      try:
+                          d1=json.load(open(p1,encoding="utf-8"))
+                          # v1 stores versionCode per package in some fdroid versions; try to extract
+                          for app in d1.get("apps",[]):
+                              if app.get("packageName")=="io.github.ilhan.droidify":
+                                  pass
+                      except: pass
+          except: pass
+          if not vcs:
+              # Try aapt on APKs in this repodir for accurate versionCodes
+              try:
+                  for apk in pathlib.Path(repodir).glob("*.apk"):
+                      try:
+                          out=subprocess.check_output(["aapt","dump","badging",str(apk)], text=True, stderr=subprocess.STDOUT)
+                          mm=re.search(r"versionCode='(\d+)'", out)
+                          if mm: vcs.append(mm.group(1))
+                      except:
+                          # fallback parse filename app-vX.Y.Z-N.apk -> semver
+                          mm=re.search(r"v?(\d+\.\d+\.\d+(?:-\d+)?)", apk.name)
+                          if mm:
+                              tag=mm.group(1)
+                              dash=tag.rfind("-")
+                              if dash!=-1 and tag[dash+1:].isdigit():
+                                  base=tag[:dash]; suf=int(tag[dash+1:])
+                              else:
+                                  base=tag; suf=0
+                              suf=min(max(suf,0),9)
+                              parts=base.split(".")
+                              try: maj=int(parts[0]) if len(parts)>0 and parts[0].isdigit() else 0
+                              except: maj=0
+                              try: mi=int(parts[1]) if len(parts)>1 and parts[1].isdigit() else 0
+                              except: mi=0
+                              try: pa=int(parts[2]) if len(parts)>2 and parts[2].isdigit() else 0
+                              except: pa=0
+                              vcs.append(str(maj*10000+mi*100+pa*10+suf))
+                          elif "0.7.6" in apk.name:
+                              vcs.append("760")
+              except: pass
+          if not vcs:
+              # Final fallback: scan other repodir's index or use known codes
+              try:
+                  d=json.load(open("repo/index-v2.json",encoding="utf-8"))
+                  pkgs=d.get("packages",{}).get("io.github.ilhan.droidify",{}).get("versions",{})
+                  vcs=[str(v.get("manifest",{}).get("versionCode","")) for v in pkgs.values()]
+              except:
+                  # include newest expected code 765 for v0.7.6-5
+                  vcs=["765","762","761"]
+          print(" ".join(v for v in vcs if v))
+          PY
+          )
+            if [ -z "$VCs" ] || echo "$VCs" | grep -q "^\s*$"; then
+              # dynamic fallback via aapt if still empty
+              VCs=$(for apk in "$repodir"/*.apk; do [ -e "$apk" ] || continue; aapt dump badging "$apk" 2>/dev/null | grep -o "versionCode='[^']*'" | cut -d"'" -f2; done | tr '\n' ' ')
+              if [ -z "$VCs" ] || echo "$VCs" | grep -q "^\s*$"; then VCs="765 762 761"; fi
+            fi
+            echo "[$repodir] VCs: $VCs"
+            for VC in $VCs; do
+              bare="io.github.ilhan.droidify.${VC}.png"
+              # baseline for v2: repo/icons/<bare> -> /icons/<bare>
+              mkdir -p "$repodir/icons"
+              f0="$repodir/icons/$bare"
+              if [ ! -f "$f0" ] || [ "$(stat -c%s "$f0" 2>/dev/null || stat -f%z "$f0")" -lt 1000 ]; then
+                cp "$PLAYSTORE" "$f0" 2>/dev/null || cp "$repodir/icons/icon.png" "$f0" 2>/dev/null || cp repo/icons/icon.png "$f0"
+                echo "created $f0"
+              fi
+              for d in 120 160 240 320 480 640; do
+                dir="$repodir/icons-$d"
+                mkdir -p "$dir"
+                f="$dir/$bare"
+                if [ ! -f "$f" ] || [ "$(stat -c%s "$f" 2>/dev/null || stat -f%z "$f")" -lt 1000 ]; then
+                  cp "$PLAYSTORE" "$f" 2>/dev/null || cp "$repodir/icons/icon.png" "$f" 2>/dev/null || cp repo/icons/icon.png "$f"
+                  echo "created $f"
+                fi
+              done
+            done
+          done
+          ls -lh repo/icons*/* 2>&1 | head -n 80 || true
+          ls -lh archive/icons*/* 2>&1 | head -n 80 || true
+          echo "=== patch indexes (v2 with /icons/ + v1 apps[].icon) for repo & archive ==="
+          python3 <<'PY'
+          import json, hashlib, os, zipfile, pathlib, shutil
+          from pathlib import Path
+
+          def file_entry(repo_path: Path):
+              h = hashlib.sha256(open(repo_path, "rb").read()).hexdigest()
+              s = os.path.getsize(repo_path)
+              # repo_path like repo/icons/bare -> name /icons/bare
+              # repo_path like repo/index-v2.json -> name /index-v2.json
+              rel = repo_path.as_posix().split("/", 1)[1]  # remove leading repo/ or archive/
+              return {"name": "/" + rel, "sha256": h, "size": s}
+
+          def patch_repodir(repodir: str):
+              repodir_p = Path(repodir)
+              if not repodir_p.exists():
+                  print(f"skip {repodir}: not exists")
+                  return
+              idx2 = repodir_p / "index-v2.json"
+              idx1_json = repodir_p / "index-v1.json"
+              idx1_jar = repodir_p / "index-v1.jar"
+
+              # --- v2 ---
+              if idx2.exists():
+                  data = json.loads(open(idx2, encoding="utf-8").read())
+                  # find latest VC for this repodir
+                  latest_vc = None
+                  try:
+                      pkgs = data.get("packages", {}).get("io.github.ilhan.droidify", {}).get("versions", {})
+                      latest_vc = max(int(v.get("manifest", {}).get("versionCode", 0)) for v in pkgs.values())
+                  except:
+                      latest_vc = 765
+                  bare = f"io.github.ilhan.droidify.{latest_vc}.png"
+                  icon_path = repodir_p / "icons" / bare
+                  # fallback if baseline missing, try icons-640
+                  if not icon_path.exists():
+                      icon_path_alt = repodir_p / "icons-640" / bare
+                      if icon_path_alt.exists():
+                          icon_path.parent.mkdir(parents=True, exist_ok=True)
+                          shutil.copy(icon_path_alt, icon_path)
+                          print(f"copied {icon_path_alt} -> {icon_path}")
+                      else:
+                          icon_path = repodir_p / "icons" / "icon.png"
+                  if not icon_path.exists():
+                      print(f"WARNING {repodir} icon missing: {icon_path}")
+                  else:
+                      entry = file_entry(icon_path)
+                      # ensure name is /icons/bare (file_entry already does)
+                      # but file_entry uses /icons/bare correctly because icon_path is repo/icons/bare
+                      print(f"[{repodir}] using v2 icon {icon_path} -> {entry}")
+                      for pkgid, pkg in data.get("packages", {}).items():
+                          pkg.setdefault("metadata", {})["icon"] = {"en-US": entry}
+                          print(f"patched {repodir} {pkgid} -> {entry}")
+                      open(idx2, "w", encoding="utf-8").write(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+
+                  # patch entry.json (only repo has entry, archive typically not)
+                  entry_p = repodir_p / "entry.json"
+                  if entry_p.exists() and idx2.exists():
+                      ent = json.loads(open(entry_p, encoding="utf-8").read())
+                      ent["index"] = file_entry(idx2)
+                      ent["index"]["numPackages"] = len(data.get("packages", {}))
+                      if "diffs" in ent:
+                          shutil.rmtree(repodir_p / "diff", ignore_errors=True)
+                          (repodir_p / "diff").mkdir(exist_ok=True)
+                          ent["diffs"] = {}
+                      open(entry_p, "w", encoding="utf-8").write(json.dumps(ent, indent=2, ensure_ascii=False) + "\n")
+                      print(f"patched {repodir}/entry.json -> {ent['index']}")
+              else:
+                  print(f"{repodir}/index-v2.json not found, skip v2 patch")
+
+              # --- v1 ---
+              # Prefer index-v1.json file if exists, else extract from jar
+              data1 = None
+              src = None
+              if idx1_json.exists():
+                  data1 = json.loads(open(idx1_json, encoding="utf-8").read())
+                  src = "json"
+              elif idx1_jar.exists():
+                  try:
+                      with zipfile.ZipFile(idx1_jar) as z:
+                          txt = z.read("index-v1.json").decode("utf-8")
+                          data1 = json.loads(txt)
+                          src = "jar"
+                          print(f"extracted {repodir}/index-v1.json from jar")
+                  except Exception as e:
+                      print(f"failed to extract {idx1_jar}: {e}")
+
+              if data1 is not None:
+                  # Find latest vc again (from v2 or fallback)
+                  latest_vc = 765
+                  if idx2.exists():
+                      try:
+                          d2 = json.loads(open(idx2, encoding="utf-8").read())
+                          pkgs = d2.get("packages", {}).get("io.github.ilhan.droidify", {}).get("versions", {})
+                          latest_vc = max(int(v.get("manifest", {}).get("versionCode", 0)) for v in pkgs.values())
+                      except:
+                          pass
+                  bare = f"io.github.ilhan.droidify.{latest_vc}.png"
+                  # fdroid v1 expects bare filename without directory (ProductItem prepends icons-$dpi)
+                  patched = 0
+                  for app in data1.get("apps", []):
+                      if app.get("packageName") == "io.github.ilhan.droidify":
+                          old = app.get("icon")
+                          app["icon"] = bare
+                          patched += 1
+                          print(f"[{repodir}] v1 app icon {old} -> {bare}")
+                  if patched == 0 and data1.get("apps"):
+                      # single-app repo, force first app
+                      data1["apps"][0]["icon"] = bare
+                      print(f"[{repodir}] v1 fallback set icon -> {bare}")
+                  # write back to json file (sign_index will recreate jar from this json)
+                  open(idx1_json, "w", encoding="utf-8").write(json.dumps(data1, indent=2, ensure_ascii=False) + "\n")
+                  print(f"wrote {idx1_json}")
+              else:
+                  print(f"{repodir} v1: no index-v1.json/jar to patch")
+
+          for rd in ["repo", "archive"]:
+              patch_repodir(rd)
+          PY
+          echo "=== re-sign (entry.json + index-v1.json) for repo & archive ==="
+          python3 <<'PY'
+          from pathlib import Path
+          from fdroidserver import common
+          import fdroidserver.signindex as si
+          cfg = common.read_config()
+          common.config = cfg
+          si.config = cfg
+          for repodir in ["repo", "archive"]:
+              p = Path(repodir)
+              if not p.exists():
+                  continue
+              if (p / "entry.json").exists():
+                  try:
+                      si.sign_index(repodir, "entry.json")
+                      print(f"re-signed {repodir}/entry.json -> entry.jar")
+                  except Exception as e:
+                      print(f"failed sign {repodir}/entry.json: {e}")
+              if (p / "index-v1.json").exists():
+                  try:
+                      si.sign_index(repodir, "index-v1.json")
+                      print(f"re-signed {repodir}/index-v1.json -> index-v1.jar")
+                  except Exception as e:
+                      print(f"failed sign {repodir}/index-v1.json: {e}")
+          PY
+          echo "=== verify ==="
+          ls -lh repo/*.json repo/*.jar 2>&1 | head -n 40
+          ls -lh archive/*.json archive/*.jar 2>&1 | head -n 40 || true
+          unzip -l repo/entry.jar 2>&1 | head -n 20 || true
+          unzip -l repo/index-v1.jar 2>&1 | head -n 20 || true
+          python3 -c "import json, pathlib; d=json.load(open('repo/index-v2.json')); print('final v2 package icon:', d['packages']['io.github.ilhan.droidify']['metadata']['icon'])" 2>&1 | head -n 20
+          python3 -c "import json, zipfile; z=zipfile.ZipFile('repo/index-v1.jar'); d=json.loads(z.read('index-v1.json')); print('final v1 app icon:', [a.get('icon') for a in d.get('apps',[])])" 2>&1 | head -n 20
+          ls -lh repo/icons/* repo/icons-640/* 2>&1 | head -n 60 || true
+
+      - name: Prepare Pages artifact
+        run: |
+          mkdir -p _site/fdroid
+          cp -r fdroid/repo _site/fdroid/repo
+          cp -r fdroid/archive _site/fdroid/archive 2>/dev/null || true
+          cat > _site/fdroid/repo/index.html <<'HTML'
+          <!doctype html><meta charset="utf-8"><title>D-Droidify repo</title>
+          <h1>D-Droidify repo</h1>
+          <ul>
+          <li><a href="index-v1.jar">index-v1.jar</a></li>
+          <li><a href="index-v2.json">index-v2.json</a></li>
+          <li><a href="entry.json">entry.json</a></li>
+          </ul>
+          HTML
+          cat > _site/index.html <<'HTML'
+          <!doctype html><meta charset="utf-8"><title>D-Droidify F-Droid Repo</title>
+          <h1>D-Droidify F-Droid Repo</h1>
+          <pre>https://ilhanpaksoy.github.io/client/fdroid/repo</pre>
+          <p>Fingerprint: <code>B9:C9:B4:0A:F2:15:22:E1:F3:3C:BB:CB:D6:69:8C:AB:AF:F4:93:30:88:86:9D:75:0E:AF:78:E2:6A:7C:B1:91</code></p>
+          <p><a href="fdroid/repo/">Browse repo</a></p>
+          HTML
+          cat > _site/fdroid/index.html <<'HTML'
+          <!doctype html><meta http-equiv="refresh" content="0; url=repo/">
+          HTML
+          ls -R _site | head -n 80
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

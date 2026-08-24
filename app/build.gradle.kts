@@ -1,4 +1,5 @@
 import com.android.build.gradle.internal.tasks.factory.dependsOn
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
@@ -9,23 +10,90 @@ plugins {
     alias(libs.plugins.compose)
 }
 
+// Signing: local keystore.properties (storeFile/storePassword/keyAlias/keyPassword)
+val keystorePropsFile = rootProject.file("keystore.properties")
+val keystoreProps = Properties().apply {
+    if (keystorePropsFile.exists()) {
+        keystorePropsFile.inputStream().use { load(it) }
+    }
+}
+
+// Version derived from git tag / env. Fork scheme: vX.Y.Z-N -> versionName "X.Y.Z-N", versionCode semver-based.
+// Formula: versionCode = major*10000 + minor*100 + patch*10 + suffix  (suffix 0 if no dash, <10)
+// Preserves existing 0.7.6 series: 0*10000+7*100+6*10+0=760, 0.7.6-5=765, 0.7.7=770, 1.0.0=10000, 1.0.0-2=10002.
+// Monotonic and no hard-coded base; works for future 1.x without bumping.
+// Tries: ENV (CI) -> exact tag on HEAD -> hardcoded fallback (0.7.6-5). Fallback only for local non-tag builds.
+val derivedVersion: Pair<String, Int> = run {
+    fun parseVersion(raw: String): Pair<String, Int> {
+        val stripped = raw.removePrefix("v").trim().ifEmpty { "0.7.6-5" }
+        // Split fork suffix: "X.Y.Z-N" -> base "X.Y.Z", suffix N
+        val dashIdx = stripped.lastIndexOf('-')
+        val (basePart, suffixStr) = if (dashIdx != -1) {
+            val s = stripped.substring(dashIdx + 1)
+            if (s.toIntOrNull() != null) stripped.substring(0, dashIdx) to s else stripped to ""
+        } else stripped to ""
+        val suffix = suffixStr.toIntOrNull() ?: 0
+        // Require suffix <10 to avoid collision with patch*10 (documented)
+        val suffixSafe = suffix.coerceIn(0, 9)
+        if (suffix != suffixSafe) {
+            // Log via println for visibility during config
+            println("WARNING: fork suffix $suffix >=10, clamped to 9 to keep versionCode monotonic; bump patch instead")
+        }
+        val parts = basePart.split(".")
+        val major = parts.getOrNull(0)?.toIntOrNull() ?: 0
+        val minor = parts.getOrNull(1)?.toIntOrNull() ?: 0
+        val patch = parts.getOrNull(2)?.toIntOrNull() ?: 0
+        val code = major * 10000 + minor * 100 + patch * 10 + suffixSafe
+        // Guard overflow (max 2100000000)
+        require(code in 1..2100000000) { "versionCode $code out of range for $raw" }
+        return stripped to code
+    }
+    val envTag = System.getenv("GITHUB_REF_NAME")
+        ?: System.getenv("RELEASE_TAG")
+    val gitTagExact = try {
+        val result = providers.exec {
+            commandLine("git", "describe", "--tags", "--exact-match", "HEAD")
+            isIgnoreExitValue = true
+        }
+        val out = result.standardOutput.asText.get().trim()
+        val code = result.result.get().exitValue
+        if (code == 0 && out.isNotEmpty()) out else null
+    } catch (_: Exception) { null }
+    val raw = envTag ?: gitTagExact ?: "v0.7.6-5"
+    parseVersion(raw)
+}
+val latestVersionName: String = derivedVersion.first
+val latestVersionCode: Int = derivedVersion.second
+
 android {
-    val latestVersionName = "0.7.6"
     namespace = "com.looker.droidify"
     compileSdk {
-        version = release(36)
+        version = release(37)
     }
 
     defaultConfig {
-        applicationId = "com.looker.droidify"
-        minSdk = 23
+        applicationId = "io.github.ilhan.droidify"
+        minSdk = 26
         versionName = latestVersionName
-        versionCode = 760
+        versionCode = latestVersionCode
 
         testInstrumentationRunner = "com.looker.droidify.TestRunner"
     }
 
     androidResources.generateLocaleConfig = true
+
+    signingConfigs {
+        create("release") {
+            val storeFilePath = keystoreProps.getProperty("storeFile")
+            if (storeFilePath != null) {
+                storeFile = if (File(storeFilePath).isAbsolute) file(storeFilePath) else rootProject.file(storeFilePath)
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+                // storeType auto-detected (file is PKCS12 despite .jks extension)
+            }
+        }
+    }
 
     buildTypes {
         release {
@@ -35,6 +103,14 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard.pro",
             )
+            // Use release signingConfig only if keystore.properties exists and storeFile valid
+            val storeFilePath = keystoreProps.getProperty("storeFile")
+            if (keystorePropsFile.exists() && storeFilePath != null) {
+                val resolvedStoreFile = if (File(storeFilePath).isAbsolute) file(storeFilePath) else rootProject.file(storeFilePath)
+                if (resolvedStoreFile.exists()) {
+                    signingConfig = signingConfigs.getByName("release")
+                }
+            }
         }
         debug {
             applicationIdSuffix = ".debug"
@@ -138,6 +214,8 @@ dependencies {
 
     implementation(libs.libsu.core)
     implementation(libs.bundles.shizuku)
+    implementation(libs.dhizuku.api)
+    implementation(libs.hiddenapibypass)
 
     implementation(libs.jackson.core)
     implementation(libs.serialization)

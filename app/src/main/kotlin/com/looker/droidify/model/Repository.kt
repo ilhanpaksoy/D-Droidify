@@ -400,6 +400,13 @@ data class Repository(
                 description = "The official repository for Brave Nightly releases. ",
                 fingerprint = "1735E2323FDE104A74F16D31C062DF75C30E79A706292FABEA1F94E6AF06EE62",
             ),
+            defaultRepository(
+                address = "https://ilhanpaksoy.github.io/client/fdroid/repo",
+                name = "D-Droidify",
+                description = "D-Droidify self-update repository.",
+                enabled = true,
+                fingerprint = "B9C9B40AF21522E1F33CBBCBD6698CABAFF4933088869D750EAF78E26A7CB191",
+            ),
         )
 
         fun newRepos(): List<Repository> = listOf()
