@@ -1,4 +1,0 @@
-Naprawiono:
-- Błąd sprawdzania integralności pliku APK
-- Sprawdzanie poprawności danych statystycznych dotyczących pobrań
-- Wydajność listy aplikacji

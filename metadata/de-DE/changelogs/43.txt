@@ -1,4 +1,0 @@
-- Fehlerbehebung: Platzhaltersymbol für Screenshot
-- Fehlerbehebung: Soft-Crash beim Starten von AppDetails
-- Fehlerbehebung: Nur eine Instanz des Root-Installationsprogramms ausführen
-- Fehlerbehebung: Root-Installationsprogramm

@@ -1,69 +1,31 @@
-> [!Warning]
-> **Free and Open-Source Android is under threat.**
->
-> Google will turn Android into a locked-down platform, restricting your essential freedom to install apps of your choice. Make your voice heard
->
-> [**Keep Android Open**](https://keepandroidopen.org/).
+# D-Droidify
 
-<div align="center">
+Fork of [Droid-ify](https://github.com/Iamlooker/Droid-ify)
 
-<img width="" src="metadata/en-US/images/featureGraphic.png" alt="Droid-ify" align="center">
+This fork adds **Dhizuku** silent-install support. Can be installed and tested side-by-side with upstream app. Can self-update itself.
 
-> **Clutterfree F-Droid client**
+- **Upstream:** `com.looker.droidify`
+- **Package:** `io.github.ilhan.droidify` 
+- **Changes:** Dhizuku installer (`DhizukuInstaller` + `HiddenApiBypass`), `applicationId` rebrand, app logo rebrand. See `NOTICE.md`.
+- **F-Droid Repo:** `https://ilhanpaksoy.github.io/client/fdroid/repo`
+- **APK Signature:** `19:10:65:6D:26:98:6A:20:8D:7D:CB:5D:9C:5A:B0:55:0A:D7:C2:E1:51:C8:1E:CC:36:EE:F0:C8:CB:B8:C1:D1`
+- **Repo Fingerprint:** `B9:C9:B4:0A:F2:15:22:E1:F3:3C:BB:CB:D6:69:8C:AB:AF:F4:93:30:88:86:9D:75:0E:AF:78:E2:6A:7C:B1:91`
 
-[![GitHub stars](https://img.shields.io/github/stars/Iamlooker/Droid-ify?color=%2359a14f&style=for-the-badge)](https://github.com/Iamlooker/Droid-ify/stargazers)
-[![GitHub downloads](https://img.shields.io/github/downloads/Iamlooker/Droid-ify/total.svg?color=%236f9645&style=for-the-badge)](https://github.com/Iamlooker/Droid-ify/releases/)
-[![GitHub latest release](https://img.shields.io/github/v/release/Iamlooker/Droid-ify?display_name=tag&color=%23d97706&style=for-the-badge)](https://github.com/Iamlooker/Droid-ify/releases/latest)
-[![F-Droid latest release](https://img.shields.io/f-droid/v/com.looker.droidify?color=%23ea9010&style=for-the-badge)](https://f-droid.org/packages/com.looker.droidify)
-</div>
-<div align="left">
+## Download
 
-<img src="metadata/en-US/images/phoneScreenshots/1.png" width="25%" /><img src="metadata/en-US/images/phoneScreenshots/2.png" width="25%" /><img src="metadata/en-US/images/phoneScreenshots/3.png" width="25%" /><img src="metadata/en-US/images/phoneScreenshots/4.png" width="25%" />
+[GitHub Releases](https://github.com/ilhanpaksoy/client/releases) · [F-Droid Repo](https://ilhanpaksoy.github.io/client/fdroid/repo)
 
-* Browse and install apps from F-Droid repositories
-* Automatic app updates in the background
-* Multiple installation methods (Session, Root, Shizuku)
-* Add custom repositories with one tap
-* Works completely offline after initial sync
+## Build
 
-### Get Started
-
-**Download**: [GitHub Releases](https://github.com/Iamlooker/Droid-ify/releases/latest) • [F-Droid](https://f-droid.org/packages/com.looker.droidify)
-
-**Signature:**
+Create `keystore.properties` in repo root:
 ```
-ED:88:59:C5:5A:F3:11:16:26:58:B9:4A:F9:82:B9:F0:91:DC:D2:76:28:D4:DE:34:86:D1:21:7E:BF:3C:99:35
+storeFile=d-droidify.jks
+storePassword=***
+keyAlias=d-droidify
+keyPassword=***
+```
+```sh
+./gradlew assembleRelease
 ```
 
-> [!Note]
-> Signature for older versions on F-Droid might be different
-
-**Build**: See [Building Guide](docs/building.md) for development setup
-
-### Contributing
-
-**Want to help?** Check out our [Contributing Guide](CONTRIBUTING.md)
-
-### Translations
-
-[![Translation status](https://hosted.weblate.org/widgets/droidify/-/horizontal-auto.svg)](https://hosted.weblate.org/engage/droidify/?utm_source=widget)
-
-### License
-
-```
-Droid-ify
-
-Copyright (C) 2025 LooKeR
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-```
-
-</div>
+License: GPL-3.0-or-later. See `LICENSE`.

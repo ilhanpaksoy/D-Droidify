@@ -1,9 +1,0 @@
-💾 Kopia zapasowa
-- Dodano obsługę eksportowania/importowania repozytoriów i ustawień
-
-# Ulepszenia
-- Wydajność strony szczegółów aplikacji
-
-# Poprawki
-- Motyw nie był stosowany podczas uruchamiania
-- Instalator root utknął

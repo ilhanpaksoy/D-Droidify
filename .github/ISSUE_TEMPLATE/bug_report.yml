@@ -8,13 +8,17 @@ body:
     attributes:
       value: |
         Found a bug? We appreciate you taking the time to report it. Before submitting, check if someone else already reported it.
+
+        > **D-Droidify only:** This tracker is for **D-Droidify** (`io.github.ilhan.droidify` / `ilhanpaksoy/client`) — Dhizuku / build & repo related. For general upstream bugs please report at [Iamlooker/Droid-ify](https://github.com/Iamlooker/Droid-ify).
   - type: checkboxes
     id: checklist
     attributes:
       label: Before you submit
       description: Please tick all that apply — we need these to help you
       options:
-        - label: I have searched the issue tracker for [open](https://github.com/Droid-ify/client/issues) and [closed](https://github.com/Droid-ify/client/issues?q=is%3Aissue+is%3Aclosed) issues that are similar to the feature request I want to file, without success.
+        - label: I have searched the issue tracker for [open](https://github.com/ilhanpaksoy/client/issues) and [closed](https://github.com/ilhanpaksoy/client/issues?q=is%3Aissue+is%3Aclosed) issues that are similar to the bug I want to file, without success.
+          required: true
+        - label: I confirm this report is for **D-Droidify** (`io.github.ilhan.droidify` / `ilhanpaksoy/client`), not upstream Droid-ify. Upstream bugs belong at [Iamlooker/Droid-ify](https://github.com/Iamlooker/Droid-ify).
           required: true
         - label: This issue contains only one bug.
           required: true
@@ -66,7 +70,7 @@ body:
   - type: input
     id: app-version
     attributes:
-      label: Droid-ify version
+      label: D-Droidify version
       description: Check in Settings or About
       placeholder: e.g. v0.5.1
     validations:

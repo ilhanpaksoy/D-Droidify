@@ -1,6 +1,0 @@
-- Przewijanie do góry będzie przebiegało płynnie
-- Niektóre języki zostały zaktualizowane
--
-    Odi
-    Japoński
-    Chorwacki

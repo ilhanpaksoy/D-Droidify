@@ -1,4 +1,0 @@
-- Korekto: Lokokupila bildeto de ekrankopio
-- Korekto: Parta kraŝo dum komencado de AppDetails
-- Korekto: Nur ruli unu instancon de administranta instalilo
-- Korekto: Administranta instalilo

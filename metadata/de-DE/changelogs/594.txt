@@ -1,2 +1,0 @@
-Korrekturen:
-- Doppelte Paketquellen

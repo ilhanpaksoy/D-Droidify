@@ -9,7 +9,7 @@ import com.looker.droidify.utility.common.extension.notificationManager
 class CopyErrorReceiver : BroadcastReceiver() {
 
     companion object {
-        const val ACTION_COPY_ERROR = "com.looker.droidify.intent.action.COPY_ERROR"
+        const val ACTION_COPY_ERROR = "io.github.ilhan.droidify.intent.action.COPY_ERROR"
         const val EXTRA_ERROR_DETAILS = "error_details"
         const val EXTRA_NOTIFICATION_TAG = "notification_tag"
         const val EXTRA_NOTIFICATION_ID = "notification_id"

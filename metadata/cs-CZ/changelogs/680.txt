@@ -1,4 +1,0 @@
-Opraveno:
-- Selhání kontroly integrity souboru APK
-- Validace dat statistik stahování
-- Výkon v seznamu aplikací

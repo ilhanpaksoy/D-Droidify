@@ -1,4 +1,0 @@
-Behoben:
-- Absturz beim Start
-
-Dies ist ein Hotfix, vorherigen Änderungen finden sich hier: https://github.com/Droid-ify/client/releases/tag/v0.6.0
