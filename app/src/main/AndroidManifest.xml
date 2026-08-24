@@ -10,6 +10,7 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+    <uses-permission android:name="com.rosan.dhizuku.permission.API" />
     <uses-permission android:name="android.permission.RUN_USER_INITIATED_JOBS" />
     <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
     <uses-permission android:name="android.permission.ENFORCE_UPDATE_OWNERSHIP" />
@@ -177,7 +178,7 @@
             android:name=".receivers.CopyErrorReceiver"
             android:exported="false">
             <intent-filter>
-                <action android:name="com.looker.droidify.intent.action.COPY_ERROR" />
+                <action android:name="io.github.ilhan.droidify.intent.action.COPY_ERROR" />
             </intent-filter>
         </receiver>
 
