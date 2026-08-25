@@ -1,5 +1,7 @@
 *.jks
 keystore.properties
+kls_database.db
+AGENTS.md
 *.iml
 .gradle
 /local.properties
