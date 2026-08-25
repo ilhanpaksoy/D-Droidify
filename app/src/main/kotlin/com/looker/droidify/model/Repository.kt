@@ -401,7 +401,7 @@ data class Repository(
                 fingerprint = "1735E2323FDE104A74F16D31C062DF75C30E79A706292FABEA1F94E6AF06EE62",
             ),
             defaultRepository(
-                address = "https://ilhanpaksoy.github.io/client/fdroid/repo",
+                address = "https://ilhanpaksoy.github.io/D-Droidify/fdroid/repo",
                 name = "D-Droidify",
                 description = "D-Droidify self-update repository.",
                 enabled = true,

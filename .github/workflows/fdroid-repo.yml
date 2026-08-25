@@ -67,7 +67,7 @@ jobs:
           cp fdroid/icon.png fdroid/archive/icons/icon.png
           ls -lh fdroid/*.png fdroid/repo/icons/* fdroid/archive/icons/* 2>&1 | head -n 20 || true
           cat > fdroid/config.yml <<EOF
-          repo_url: https://ilhanpaksoy.github.io/client/fdroid/repo
+          repo_url: https://ilhanpaksoy.github.io/D-Droidify/fdroid/repo
           repo_name: D-Droidify
           repo_description: D-Droidify self-update repository
           archive_older: 3
@@ -527,7 +527,7 @@ jobs:
           cat > _site/index.html <<'HTML'
           <!doctype html><meta charset="utf-8"><title>D-Droidify F-Droid Repo</title>
           <h1>D-Droidify F-Droid Repo</h1>
-          <pre>https://ilhanpaksoy.github.io/client/fdroid/repo</pre>
+          <pre>https://ilhanpaksoy.github.io/D-Droidify/fdroid/repo</pre>
           <p>Fingerprint: <code>B9:C9:B4:0A:F2:15:22:E1:F3:3C:BB:CB:D6:69:8C:AB:AF:F4:93:30:88:86:9D:75:0E:AF:78:E2:6A:7C:B1:91</code></p>
           <p><a href="fdroid/repo/">Browse repo</a></p>
           HTML
