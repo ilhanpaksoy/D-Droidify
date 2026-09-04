@@ -1,7 +1,7 @@
-name: Quick Crash Report
-description: The app crashed? Report it quickly
+name: Crash Report
+description: App crashed unexpectedly
 title: "[Crash] "
-labels: ["urgent"]
+labels: [ "crash" ]
 type: bug
 body:
   - type: markdown
@@ -13,59 +13,72 @@ body:
   - type: checkboxes
     id: checklist
     attributes:
-      label: Before you submit
-      description: Quick checks
+      label: Guidelines
+      description: Confirm before submitting
       options:
         - label: I have searched the issue tracker for [open](https://github.com/ilhanpaksoy/D-Droidify/issues) and [closed](https://github.com/ilhanpaksoy/D-Droidify/issues?q=is%3Aissue+is%3Aclosed) issues that are similar to the crash I want to file, without success.
           required: true
         - label: I confirm this report is for **D-Droidify** (`io.github.ilhan.droidify` / `ilhanpaksoy/D-Droidify`), not upstream Droid-ify. Upstream crashes belong at [Iamlooker/Droid-ify](https://github.com/Iamlooker/Droid-ify).
           required: true
-        - label: I'm on the latest version
+        - label: I'm on the [latest](https://github.com/ilhanpaksoy/D-Droidify/releases/latest) release
           required: true
+
   - type: textarea
     id: description
     attributes:
-      label: What happened?
-      description: What were you doing when it crashed?
-      placeholder: I was... and then the app closed
+      label: What happened
+      description: Describe the crash
     validations:
       required: true
+
   - type: textarea
     id: reproduce
     attributes:
-      label: How do we trigger it?
-      description: Steps to reproduce
+      label: Steps to reproduce
+      description: Steps to reproduce the crash. The issue might be closed if we fail to reproduce it.
       placeholder: |
         1. Open app, go to...
         2. Tap on...
         3. Crash
+
   - type: input
     id: device
     attributes:
-      label: Your phone
-      description: Brand and model
+      label: Device
+      description: On what device did you encounter this crash?
       placeholder: e.g. Pixel 6
     validations:
       required: true
+
   - type: input
     id: os
     attributes:
       label: Android version
-      description: What version of Android?
+      description: What version of Android are you on?
       placeholder: e.g. Android 14
     validations:
       required: true
+
   - type: input
     id: app-version
     attributes:
       label: D-Droidify version
       description: Check in Settings or About
-      placeholder: e.g. v0.5.1
+      placeholder: e.g. v0.7.7-1
     validations:
       required: true
+
   - type: textarea
-    id: additional
+    id: logs
     attributes:
-      label: Anything else?
-      description: Recent settings changes, repos added, etc.
-      placeholder: Whatever might help...
+      label: Logs
+      description: Paste your logs below, or drag and drop a log file.
+      value: |
+        <details>
+        <summary>Logs</summary>
+
+        ```kotlin
+        // paste logs here and remove this line
+        ```
+
+        </details>

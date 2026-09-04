@@ -22,10 +22,10 @@ val keystoreProps = Properties().apply {
 // Formula: versionCode = major*10000 + minor*100 + patch*10 + suffix  (suffix 0 if no dash, <10)
 // Preserves existing 0.7.6 series: 0*10000+7*100+6*10+0=760, 0.7.6-5=765, 0.7.7=770, 1.0.0=10000, 1.0.0-2=10002.
 // Monotonic and no hard-coded base; works for future 1.x without bumping.
-// Tries: ENV (CI) -> exact tag on HEAD -> hardcoded fallback (0.7.6-5). Fallback only for local non-tag builds.
+// Tries: ENV (CI) -> exact tag on HEAD -> hardcoded fallback (0.7.7-1). Fallback only for local non-tag builds.
 val derivedVersion: Pair<String, Int> = run {
     fun parseVersion(raw: String): Pair<String, Int> {
-        val stripped = raw.removePrefix("v").trim().ifEmpty { "0.7.6-5" }
+        val stripped = raw.removePrefix("v").trim().ifEmpty { "0.7.7-1" }
         // Split fork suffix: "X.Y.Z-N" -> base "X.Y.Z", suffix N
         val dashIdx = stripped.lastIndexOf('-')
         val (basePart, suffixStr) = if (dashIdx != -1) {
@@ -59,7 +59,7 @@ val derivedVersion: Pair<String, Int> = run {
         val code = result.result.get().exitValue
         if (code == 0 && out.isNotEmpty()) out else null
     } catch (_: Exception) { null }
-    val raw = envTag ?: gitTagExact ?: "v0.7.6-5"
+    val raw = envTag ?: gitTagExact ?: "v0.7.7-1"
     parseVersion(raw)
 }
 val latestVersionName: String = derivedVersion.first
@@ -182,13 +182,6 @@ kotlin {
     }
 }
 
-java {
-    toolchain {
-        languageVersion.set(JavaLanguageVersion.of(17))
-        vendor.set(JvmVendorSpec.JETBRAINS)
-    }
-}
-
 dependencies {
     implementation(libs.material)
     implementation(libs.core.ktx)
@@ -255,7 +248,7 @@ dependencies {
     androidTestImplementation(libs.bundles.test.android)
     kspAndroidTest(libs.hilt.compiler)
 
-//    debugImplementation(libs.leakcanary)
+    debugImplementation(libs.leakcanary)
 }
 
 // using a task as a preBuild dependency instead of a function that takes some time insures that it runs
